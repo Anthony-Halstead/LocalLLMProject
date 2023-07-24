@@ -74,14 +74,14 @@ embeddings = initialize_embeddings()
 index = FAISS.load_local(index_path, embeddings)
 
 ## chatbot style query
-# qa = ConversationalRetrievalChain.from_llm(llm, index.as_retriever())
+qa = ConversationalRetrievalChain.from_llm(llm, index.as_retriever())
 
-# chat_history = []
-# query = "Where did life come from?"
-# result = qa({"question": query, "chat_history": chat_history})
+chat_history = []
+query = "Where did life come from?"
+result = qa({"question": query, "chat_history": chat_history})
 
-# query = "How did magic come to be?"
-# result = qa({"question": query, "chat_history": chat_history})
+query = "How did magic come to be?"
+result = qa({"question": query, "chat_history": chat_history})
 
 
  # # Context based query
