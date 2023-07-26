@@ -1,4 +1,5 @@
 from typing import List
+from datetime import datetime
 from langchain.document_loaders import TextLoader
 from langchain.llms import CTransformers
 from langchain.embeddings import GPT4AllEmbeddings
@@ -6,7 +7,18 @@ from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores.faiss import FAISS
 from langchain.chains import ConversationalRetrievalChain
-from langchain import PromptTemplate, LLMChain
+from langchain.chains import LLMChain
+from langchain.memory import VectorStoreRetrieverMemory
+import faiss
+from langchain.docstore import InMemoryDocstore
+from langchain.chains.question_answering import load_qa_chain
+from langchain.prompts import (
+    ChatPromptTemplate,
+    PromptTemplate,
+    SystemMessagePromptTemplate,
+    AIMessagePromptTemplate,
+    HumanMessagePromptTemplate,
+)
 
 #CTransformers configuration
 config = {
@@ -26,7 +38,7 @@ config = {
     'gpu_layers': 0, # To be used for offloading to the GPU, Most libraries that are used for quantization of the llm for gpu offloading are better supported on linux/ Additionally, this can be used to share the offlaoding bewtweent he CPU and GPU (very cool concept, I NEED LINUX)
 }
 
-llm = CTransformers(model='C:\LocalLLMProject\models\llama-2-13b-chat.ggmlv3.q8_0.bin',model_type='llama', callbacks=[StreamingStdOutCallbackHandler()], config=config)
+llm = CTransformers(model='C:\LocalLLMProject\models\llama-2-7b-chat.ggmlv3.q8_0.bin',model_type='llama', callbacks=[StreamingStdOutCallbackHandler()], config=config)
 model_path='ggml-all-MiniLM-L6-v2-f16.bin' 
 text_path = "./docs/true-history-of-the-world.txt"
 index_path = "./history-of-the-world-index"
@@ -73,15 +85,62 @@ embeddings = initialize_embeddings()
 
 index = FAISS.load_local(index_path, embeddings)
 
+
+### Vector Store Memory
+embedding_size = 1536 # Dimensions of the Embeddings
+memory_index = faiss.IndexFlatL2(embedding_size)
+embedding_fn = GPT4AllEmbeddings().embed_query
+vectorstore = FAISS(embedding_fn, memory_index, InMemoryDocstore({}), {})
+
+memory_retriever = vectorstore.as_retriever(search_kwargs=dict(k=1))
+memory = VectorStoreRetrieverMemory(retriever=memory_retriever)
+
+_template = """Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question, in its original language.
+
+Chat History:
+{chat_history}
+Follow Up Input: {question}
+Standalone question:"""
+
+CONDENSE_QUESTION_PROMPT = PromptTemplate.from_template(_template)
+
+prompt_template = """
+
+You are an urban gangster, your responses are spoken as a gangster.
+
+Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer.You must answer in its original language.
+
+{context}
+
+Question: {question}
+Answer:"""
+
+
+QA_PROMPT = PromptTemplate(
+    template=prompt_template, input_variables=["context", "question"]
+)
+
+
+question_generator = LLMChain(llm=llm, prompt=CONDENSE_QUESTION_PROMPT)
+doc_chain = load_qa_chain(llm, chain_type="stuff", prompt=QA_PROMPT, memory=memory, verbose=True)
 ## chatbot style query
-qa = ConversationalRetrievalChain.from_llm(llm, index.as_retriever())
+qa = ConversationalRetrievalChain(
+    retriever=index.as_retriever(),
+    question_generator=question_generator,
+    combine_docs_chain=doc_chain,
+)
 
-chat_history = []
-query = "Where did life come from?"
+chat_history=[]
+
+query = "Where did the seeds come from?"
 result = qa({"question": query, "chat_history": chat_history})
 
-query = "How did magic come to be?"
+query = "what do you think of the seeds?"
 result = qa({"question": query, "chat_history": chat_history})
+
+
+
+
 
 
  # # Context based query
@@ -89,9 +148,9 @@ result = qa({"question": query, "chat_history": chat_history})
 # matched_docs, sources = similarity_search(question, index)
 
 # template = """
-# Your character is a urban gangster who only answers questions based off of the context provided. 
-# If you do not know an answer to a question, then answer according to your character.
-# Please use the following context to answer questions.
+# You are a urban gangster who only answers questions based off of the context provided.\ 
+# If you do not know an answer to a question, then respond with you do not know.\
+# Please use the following context to answer questions.\
 # Context: {context}
 # ---
 # Question: {question}
