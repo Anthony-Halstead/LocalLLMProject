@@ -87,7 +87,7 @@ index = FAISS.load_local(index_path, embeddings)
 
 
 ### Vector Store Memory
-embedding_size = 1536 # Dimensions of the Embeddings
+embedding_size = 384 # Dimensions of the Embeddings
 memory_index = faiss.IndexFlatL2(embedding_size)
 embedding_fn = GPT4AllEmbeddings().embed_query
 vectorstore = FAISS(embedding_fn, memory_index, InMemoryDocstore({}), {})
@@ -121,8 +121,8 @@ QA_PROMPT = PromptTemplate(
 )
 
 
-question_generator = LLMChain(llm=llm, prompt=CONDENSE_QUESTION_PROMPT)
-doc_chain = load_qa_chain(llm, chain_type="stuff", prompt=QA_PROMPT, memory=memory, verbose=True)
+question_generator = LLMChain(llm=llm, prompt=CONDENSE_QUESTION_PROMPT, memory=memory)
+doc_chain = load_qa_chain(llm, chain_type="stuff", prompt=QA_PROMPT, verbose=True)
 ## chatbot style query
 qa = ConversationalRetrievalChain(
     retriever=index.as_retriever(),
@@ -130,34 +130,18 @@ qa = ConversationalRetrievalChain(
     combine_docs_chain=doc_chain,
 )
 
-chat_history=[]
 
-query = "Where did the seeds come from?"
+chat_history = []
+query = "How is your day going?"
 result = qa({"question": query, "chat_history": chat_history})
+memory.save_context({"input":query},{"output":result})
+print(memory.load_memory_variables({"input":query}))
+# query = "tell me what my name is?"
+# result = qa({"question": query, "chat_history": chat_history})
+# memory.save_context({"input":query},{"output":result})
+# print(memory.load_memory_variables({"input":query}))
+vectorstore.save_local("chat-history")
 
-query = "what do you think of the seeds?"
-result = qa({"question": query, "chat_history": chat_history})
 
 
 
-
-
-
- # # Context based query
-# question = "How did magic come to be?"
-# matched_docs, sources = similarity_search(question, index)
-
-# template = """
-# You are a urban gangster who only answers questions based off of the context provided.\ 
-# If you do not know an answer to a question, then respond with you do not know.\
-# Please use the following context to answer questions.\
-# Context: {context}
-# ---
-# Question: {question}
-# """
-
-# context = "\n".join([doc.page_content for doc in matched_docs])
-# prompt = PromptTemplate(template=template, input_variables=["context", "question"]).partial(context=context)
-# llm_chain = LLMChain(prompt=prompt, llm=llm)
-
-# llm_chain.run(question)
