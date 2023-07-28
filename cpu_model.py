@@ -19,7 +19,7 @@ from langchain.prompts import (
     AIMessagePromptTemplate,
     HumanMessagePromptTemplate,
 )
-
+from langchain.memory import ConversationBufferMemory 
 #CTransformers configuration
 config = {
     'top_k': 40, #This is used for token prediction determination/ the lower the value the higher the output quality and the lower diversity; the higher the value the lower the quality and higher diversity.
@@ -87,13 +87,14 @@ index = FAISS.load_local(index_path, embeddings)
 
 
 ### Vector Store Memory
-embedding_size = 384 # Dimensions of the Embeddings
-memory_index = faiss.IndexFlatL2(embedding_size)
-embedding_fn = GPT4AllEmbeddings().embed_query
-vectorstore = FAISS(embedding_fn, memory_index, InMemoryDocstore({}), {})
+# embedding_size = 384 # Dimensions of the Embeddings Model
+# memory_index = faiss.IndexFlatL2(embedding_size)
+# embedding_fn = GPT4AllEmbeddings().embed_query
+# vectorstore = FAISS(embedding_fn, memory_index, InMemoryDocstore({}), {})
 
-memory_retriever = vectorstore.as_retriever(search_kwargs=dict(k=1))
-memory = VectorStoreRetrieverMemory(retriever=memory_retriever)
+# memory_retriever = vectorstore.as_retriever(search_kwargs=dict(k=1))
+# memory = VectorStoreRetrieverMemory(retriever=memory_retriever, memory_key="history")
+
 
 _template = """Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question, in its original language.
 
@@ -102,26 +103,28 @@ Chat History:
 Follow Up Input: {question}
 Standalone question:"""
 
-CONDENSE_QUESTION_PROMPT = PromptTemplate.from_template(_template)
+CONDENSE_QUESTION_PROMPT = PromptTemplate(template=_template, input_variables=["chat_history", "question"])
 
 prompt_template = """
 
 You are an urban gangster, your responses are spoken as a gangster.
 
 Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer.You must answer in its original language.
-
 {context}
+
+Here is relevent history from previous chats, you do not need to use the relevent history if it does not help you answer the question.
+{chat_history}
 
 Question: {question}
 Answer:"""
 
 
 QA_PROMPT = PromptTemplate(
-    template=prompt_template, input_variables=["context", "question"]
+    template=prompt_template, input_variables=["chat_history","context", "question"]
 )
 
 
-question_generator = LLMChain(llm=llm, prompt=CONDENSE_QUESTION_PROMPT, memory=memory)
+question_generator = LLMChain(llm=llm, prompt=CONDENSE_QUESTION_PROMPT,verbose=True)
 doc_chain = load_qa_chain(llm, chain_type="stuff", prompt=QA_PROMPT, verbose=True)
 ## chatbot style query
 qa = ConversationalRetrievalChain(
@@ -131,17 +134,31 @@ qa = ConversationalRetrievalChain(
 )
 
 
-chat_history = []
-query = "How is your day going?"
+chat_history=[]
+query = "My name is Anthony my birthday is april 20th."
 result = qa({"question": query, "chat_history": chat_history})
-memory.save_context({"input":query},{"output":result})
-print(memory.load_memory_variables({"input":query}))
-# query = "tell me what my name is?"
-# result = qa({"question": query, "chat_history": chat_history})
-# memory.save_context({"input":query},{"output":result})
-# print(memory.load_memory_variables({"input":query}))
-vectorstore.save_local("chat-history")
+chat_history.append((query, result["answer"]))
+print(chat_history)
+query = "What is Anthony's birthday month?"
+result = qa({"question": query, "chat_history": chat_history})
+chat_history.append((query, result["answer"]))
+print(chat_history)
 
 
 
+### will be used for websocket communication
 
+# from fastapi import FastAPI, WebSocket
+# from gpt4all import GPT4All
+
+# app = FastAPI()
+
+# model = GPT4All("ggml-model-gpt4all-falcon-q4_0.bin")
+
+# @app.websocket("/generate")
+# async def generate(websocket: WebSocket):
+#     await websocket.accept()
+#     while True:
+#         data = await websocket.receive_text()
+#         for output in model.generate(data, max_tokens=2048, streaming=True):
+#             await websocket.send_text(output)
